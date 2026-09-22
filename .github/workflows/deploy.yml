@@ -58,8 +58,12 @@ jobs:
       - name: Update task definition with new image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+          CONTAINER_NAME: ${{ env.CONTAINER_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:${{ github.sha }}
+          IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          export IMAGE_URI
 
           python - <<'PY'
           import json
@@ -69,9 +73,10 @@ jobs:
               task_definition = json.load(f)
 
           image_uri = os.environ["IMAGE_URI"]
+          container_name = os.environ["CONTAINER_NAME"]
 
           for container in task_definition["containerDefinitions"]:
-              if container["name"] == os.environ["CONTAINER_NAME"]:
+              if container["name"] == container_name:
                   container["image"] = image_uri
 
           fields_to_remove = [
@@ -90,6 +95,7 @@ jobs:
           with open("task-definition-new.json", "w") as f:
               json.dump(task_definition, f)
 
+          print("New image:", image_uri)
           PY
 
       - name: Register new ECS task definition
@@ -101,6 +107,9 @@ jobs:
             --output text)
 
           echo "TASK_DEFINITION_ARN=$TASK_DEFINITION_ARN" >> $GITHUB_ENV
+
+          echo "Registered task definition:"
+          echo "$TASK_DEFINITION_ARN"
 
       - name: Update ECS service
         run: |
@@ -114,3 +123,5 @@ jobs:
           aws ecs wait services-stable \
             --cluster $ECS_CLUSTER \
             --services $ECS_SERVICE
+
+          echo "ECS service deployment completed successfully."
